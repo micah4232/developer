@@ -1,35 +1,29 @@
 import os
-import modal
 import ast
 from utils import clean_dir
 from constants import DEFAULT_DIR, DEFAULT_MODEL, DEFAULT_MAX_TOKENS
+import time
 
-stub = modal.Stub("smol-developer-v1") # yes we are recommending using Modal by default, as it helps with deployment. see readme for why.
-openai_image = modal.Image.debian_slim().pip_install("openai", "tiktoken")
 
 @stub.function(
     image=openai_image,
     secret=modal.Secret.from_dotenv(),
     retries=modal.Retries(
-        max_retries=5,
+        max_retries=3,
         backoff_coefficient=2.0,
         initial_delay=1.0,
     ),
-    concurrency_limit=5, # many users report rate limit issues (https://github.com/smol-ai/developer/issues/10) so we try to do this but it is still inexact. would like ideas on how to improve
-    timeout=120,
+    # concurrency_limit=5,
+    # timeout=120,
 )
-def generate_response(model, system_prompt, user_prompt, *args):
-    # IMPORTANT: Keep import statements here due to Modal container restrictions https://modal.com/docs/guide/custom-container#additional-python-packages
+def generate_response(system_prompt, user_prompt, *args):
     import openai
     import tiktoken
 
     def reportTokens(prompt):
-        encoding = tiktoken.encoding_for_model(model)
-        # print number of tokens in light gray, with first 50 characters of prompt in green. if truncated, show that it is truncated
-        print("\033[37m" + str(len(encoding.encode(prompt))) + " tokens\033[0m" + " in prompt: " + "\033[92m" + prompt[:50] + "\033[0m" + ("..." if len(prompt) > 50 else ""))
-        
+        encoding = tiktoken.encoding_for_model(openai_model)
+        print("\033[37m" + str(len(encoding.encode(prompt))) + " tokens\033[0m" + " in prompt: " + "\033[92m" + prompt[:50] + "\033[0m")
 
-    # Set up your OpenAI API credentials
     openai.api_key = os.environ["OPENAI_API_KEY"]
 
     messages = []
@@ -37,7 +31,6 @@ def generate_response(model, system_prompt, user_prompt, *args):
     reportTokens(system_prompt)
     messages.append({"role": "user", "content": user_prompt})
     reportTokens(user_prompt)
-    # Loop through each value in `args` and add it to messages alternating role between "assistant" and "user"
     role = "assistant"
     for value in args:
         messages.append({"role": role, "content": value})
@@ -45,16 +38,14 @@ def generate_response(model, system_prompt, user_prompt, *args):
         role = "user" if role == "assistant" else "assistant"
 
     params = {
-        "model": model,
+        "model": openai_model,
         "messages": messages,
-        "max_tokens": DEFAULT_MAX_TOKENS,
+        "max_tokens": openai_model_max_tokens,
         "temperature": 0,
     }
 
-    # Send the API request
     response = openai.ChatCompletion.create(**params)
-
-    # Get the reply from the API response
+    time.sleep(5)  # Add a delay of 1 second between API calls
     reply = response.choices[0]["message"]["content"]
     return reply
 
